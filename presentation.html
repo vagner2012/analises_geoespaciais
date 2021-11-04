@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+  <head>
+    <title>A Dataset of Amphibian Communities from the Atlantic Forests of South America</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Caroline Portal, Lucas Alencar e Vagner Rebouças" />
+    <script src="libs/header-attrs-2.11/header-attrs.js"></script>
+    <link href="libs/remark-css-0.0.1/default.css" rel="stylesheet" />
+    <link href="libs/remark-css-0.0.1/default-fonts.css" rel="stylesheet" />
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle, inverse, title-slide
+
+# A Dataset of Amphibian Communities from the Atlantic Forests of South America
+### Caroline Portal, Lucas Alencar e Vagner Rebouças
+### Disciplina de análises geoespaciais no R
+### 2021/11/05
+
+---
+
+
+#Introdução
+
+**Eugenia pyriformis Cambess**
+
+&lt;div class="figure" style="text-align: left"&gt;
+&lt;img src="fruto.jfif" alt="Fonte: jardim cor" width="30%" /&gt;
+&lt;p class="caption"&gt;Fonte: jardim cor&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;div class="figure" style="text-align: right"&gt;
+&lt;img src="flor.jpeg" alt="Fonte: jardim cor" width="200" /&gt;
+&lt;p class="caption"&gt;Fonte: jardim cor&lt;/p&gt;
+&lt;/div&gt;
+
+Os frutos são consumidos in-natura e na forma de sucos  
+Espécie muito apreciada por aves
+
+---
+#Introdução
+Os anfíbios estão entre os vertebrados mais ameaçados  
+
+Mata Atlântica - ecossistemas altamente degradados  
+
+Conjunto de dados contendo informações sobre as comunidades de anfíbios em todo o bioma Mata Atlântica na América do Sul  
+
+
+    *Relação entre espécies e suas abundâncias com a densidade demográfica
+---
+#Coleta de dados
+
+389 referências bibliográficas (artigos, livros, teses e dissertações) representando inventários de comunidades de anfíbios de 1940 a 2017. 
+  
+O conjunto de dados inclui 17.619 registros de 528 espécies em 1.163 locais de estudo.
+  
+14.450 (82%) foram classificados pelo critério de endemismo; desses, 7.787 (44%) foram considerados endêmicos e 6.663 (38%) não foram.
+---
+#Passo a passo
+Filtramos o mapa de população somente para a mata atlântica  
+
+**Código**:read.csv(file = here("dados/ATLANTIC_AMPHIBIANS_sites.csv")) -&gt; amphi_sites
+read.csv(file = here("dados/ATLANTIC_AMPHIBIANS_species.csv"))-&gt;amphi_spp
+raster(x = here("dados/pop_MA_1000_ployBR.tif"))-&gt; pop_MA_1000_polyBR
+read_biomes()%&gt;%
+
+  filter(name_biome == "Mata Atlântica") -&gt; map_MA
+  
+  &lt;img src="passo_1.png" width="300" style="display: block; margin: auto;" /&gt;
+---
+#Passo a passo
+Agregamos os dados de população para ~1km
+
+"Código": raster::aggregate(x = pop_MA, fact = 10, fun = sum) -&gt;pop_MA_1000
+
+&lt;img src="raster1.png" width="550" style="display: block; margin: auto;" /&gt;
+---
+#Passo a passo
+Transformamos a localização dos sítios de coleta em um sf (POINTS)
+
+**Código**: amphi_sites %&gt;% 
+  sf::st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %&gt;%
+  st_transform(crs = 5880)-&gt; anf_sites_points
+
+---
+#Passo a passo
+Criamos os buffers para esses pontos (1, 2, e 5km) 
+
+**Código**: buff_1km &lt;- sf::st_buffer(x = anf_sites_MA, dist = 1000)
+buff_2km &lt;- sf::st_buffer(x = anf_sites_MA, dist = 2000)
+buff_5km &lt;- sf::st_buffer(x = anf_sites_MA, dist = 5000)
+
+&lt;img src="buffers.png" width="550" style="display: block; margin: auto;" /&gt;
+---
+
+#Passo a passo
+Calculamos o número de pessoas por buffer 
+
+Somamos o número de pessoas dentro de cada buffer 
+
+Filtramos os pixels dentro de cada buffer (um para cada camada)
+
+**Código**: buff_1km %&gt;% 
+  dplyr::mutate(pop_1km = raster::extract(x = pop_MA_1000_polyBR,
+                                          y = buff_1km,
+                                          fun = sum,
+                                          na.rm = FALSE)) -&gt; buff_1km
+
+&lt;img src="gif.gif" width="420" style="display: block; margin: auto;" /&gt;
+
+---
+#Passo a passo
+Montamos uma tabela de abundância de cada sítio 
+
+**Código**: raster::aggregate(x = pop_MA, fact = 10, fun = sum) -&gt;pop_MA_1000
+
+&lt;img src="passo6.png" width="400" style="display: block; margin: auto;" /&gt;
+
+---
+
+#Passo a passo
+Filtramos as espécies com registro de abundância (pelo menos em 10 sites)
+
+**Código**: amphi_spp%&gt;%
+  anti_join(y = select(anf_sites_outMA, id))%&gt;%
+  drop_na(data =., any_of("individuals"))%&gt;%
+  group_by(species)%&gt;%
+  dplyr::summarise(count = n())%&gt;%
+  filter(count &gt;= 10)%&gt;%
+  glimpse -&gt; spp_site_count
+
+---
+#Passo a passo
+Montamos uma tabela no formato wide (sítio x espécies com suas respectivas abundâncias) 
+
+**Código**amphi_spp%&gt;%
+  anti_join(y = select(anf_sites_outMA, id))%&gt;%
+  right_join(y = spp_site_count, by = "species")%&gt;%
+  drop_na(data =., any_of("individuals"))%&gt;%
+  pivot_wider(names_from = species, values_from = individuals, id_cols=id, values_fn = sum)
+
+
+&lt;img src="passo6.3.png" width="350" style="display: block; margin: auto;" /&gt;
+
+---
+#Passo a passo
+Juntamos os dados do número de pessoas em cada buffer a essa tabela (pop_1km, pop_2km, pop_5km
+
+**Código*: inner_join(y=select(buff_1km,id, pop_1km))%&gt;%
+  left_join(y=select(buff_2km, id, pop_2km), by = "id")%&gt;%
+  left_join(y = select(buff_5km, id, pop_5km), by = "id")%&gt;%
+  dplyr::rename("geometry1" = "geometry.x",
+         "geometry2" = "geometry.y",
+         "geometry5" = "geometry")%&gt;%
+  glimpse-&gt;amphi_spp_wide
+
+&lt;img src="nova.png" width="400" style="display: block; margin: auto;" /&gt;
+---
+#Passo a passo
+Fizemos um glm para cada espécie para cada buffer
+
+**código**: amphi_spp_wide%&gt;%
+  select(-id, -geometry1, -geometry2, -geometry5)%&gt;%
+  map(~glm(. ~ log(amphi_spp_wide$pop_1km + 0.0001), family="poisson"))
+
+---
+#Resultados
+Tabela com as relações pra cada espécie por buffer 
+
+&lt;img src="glm.png" width="800" style="display: block; margin: auto;" /&gt;
+---
+
+#Resultados - Negativos
+
+&lt;img src="spp_all_negative.jpg" width="800" style="display: block; margin: auto;" /&gt;
+&lt;img src="legenda.png" width="150" style="display: block; margin: auto 0 auto auto;" /&gt;
+---
+#Resultados - Positivos
+&lt;img src="spp_all_positive.jpg" width="630" style="display: block; margin: auto;" /&gt;
+&lt;img src="legenda.png" width="150" style="display: block; margin: auto 0 auto auto;" /&gt;
+---
+#Resultados - Mixed
+&lt;img src="spp_mixed.jpg" width="700" style="display: block; margin: auto;" /&gt;
+&lt;img src="legenda.png" width="100" style="display: block; margin: auto 0 auto auto;" /&gt;
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"highlightStyle": "github",
+"highlightLines": true,
+"countIncrementalSlides": false
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();
+(function() {
+  "use strict"
+  // Replace <script> tags in slides area to make them executable
+  var scripts = document.querySelectorAll(
+    '.remark-slides-area .remark-slide-container script'
+  );
+  if (!scripts.length) return;
+  for (var i = 0; i < scripts.length; i++) {
+    var s = document.createElement('script');
+    var code = document.createTextNode(scripts[i].textContent);
+    s.appendChild(code);
+    var scriptAttrs = scripts[i].attributes;
+    for (var j = 0; j < scriptAttrs.length; j++) {
+      s.setAttribute(scriptAttrs[j].name, scriptAttrs[j].value);
+    }
+    scripts[i].parentElement.replaceChild(s, scripts[i]);
+  }
+})();
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();
+// adds .remark-code-has-line-highlighted class to <pre> parent elements
+// of code chunks containing highlighted lines with class .remark-code-line-highlighted
+(function(d) {
+  const hlines = d.querySelectorAll('.remark-code-line-highlighted');
+  const preParents = [];
+  const findPreParent = function(line, p = 0) {
+    if (p > 1) return null; // traverse up no further than grandparent
+    const el = line.parentElement;
+    return el.tagName === "PRE" ? el : findPreParent(el, ++p);
+  };
+
+  for (let line of hlines) {
+    let pre = findPreParent(line);
+    if (pre && !preParents.includes(pre)) preParents.push(pre);
+  }
+  preParents.forEach(p => p.classList.add("remark-code-has-line-highlighted"));
+})(document);</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>
